@@ -4,6 +4,29 @@ A GitHub repo's open issues as a graph: which issue blocks which (red) and
 which has which sub-issues (blue, dashed), grouped by milestone. GitHub
 itself shows these links only per issue, in the sidebar.
 
+## Install
+
+```sh
+uv tool install git+https://github.com/mamueluth/issue-graph
+```
+
+Needs `gh` (logged in, read access to the repo's issues) and Graphviz
+(`dot`). github.com only: the blocked-by and sub-issue fields. The window
+needs a display and, on Linux, Qt's display libraries: a desktop has them, a
+bare container does not. On Debian/Ubuntu:
+
+```sh
+sudo apt-get install -y --no-install-recommends graphviz fonts-dejavu-core \
+  libegl1 libgl1 libfontconfig1 libdbus-1-3 libx11-xcb1 libxkbcommon-x11-0 \
+  libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+  libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xkb1
+```
+
+Working on issue-graph itself: `uv tool install --editable .` in a clone,
+so code edits apply at once.
+
+## Use
+
 ```sh
 issue-graph                          # window for the repo of the current directory
 issue-graph OWNER/REPO               # window for OWNER/REPO
@@ -25,14 +48,3 @@ straight from `dot`, without Qt.
 Only open issues of the repo are drawn: links to closed issues or other
 repos are left out. Only GitHub's relationship fields are links; "depends
 on #53" written in an issue's text is not.
-
-## Install
-
-```sh
-uv tool install --editable .   # puts issue-graph on PATH; code edits apply at once
-```
-
-Needs `gh` (logged in, read access to the repo's issues), Graphviz (`dot`),
-and for the window a display; Qt's X11 libraries on Linux (see the `gui`
-group in the container's `packages.yaml`). github.com only: the blocked-by
-and sub-issue fields.
