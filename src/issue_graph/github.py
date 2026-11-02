@@ -12,6 +12,7 @@ query($owner: String!, $repo: String!, $endCursor: String) {
     issues(states: OPEN, first: 100, after: $endCursor) {
       nodes {
         number title body url
+        author { login }
         issueType { name }
         milestone { number title }
         labels(first: 20) { nodes { name color } }
@@ -47,6 +48,7 @@ class Issue:
     title: str
     body: str  # Markdown
     url: str
+    author: str | None  # login; None for a deleted account
     type: str | None  # Bug, Feature, ... if the repo uses issue types
     milestone: Milestone | None
     labels: tuple[Label, ...]
@@ -91,6 +93,7 @@ def fetch(slug: str) -> list[Issue]:
             title=n["title"],
             body=n["body"],
             url=n["url"],
+            author=n["author"]["login"] if n["author"] else None,
             type=n["issueType"]["name"] if n["issueType"] else None,
             milestone=Milestone(**n["milestone"]) if n["milestone"] else None,
             labels=tuple(Label(**label) for label in n["labels"]["nodes"]),

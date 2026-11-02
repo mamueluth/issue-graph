@@ -43,13 +43,14 @@ class GraphvizError(RuntimeError):
 
 
 def edges(issues: list[Issue], links: str | None = None) -> list[Edge]:
-    """The links between the issues; links = "blocks" or "sub-issues" keeps only that kind."""
+    """The links between these issues, not to others; links = "blocks" or "sub-issues" keeps only that kind."""
+    numbers = {i.number for i in issues}
     out: list[Edge] = []
     for issue in issues:
         out += [Edge(b, issue.number, "blocks") for b in issue.blocked_by]
         if issue.parent is not None:
             out.append(Edge(issue.parent, issue.number, "sub-issues"))
-    return [e for e in out if links in (None, "both") or e.kind == links]
+    return [e for e in out if e.tail in numbers and (links in (None, "both") or e.kind == links)]
 
 
 def wrap(text: str, width: int = 30) -> list[str]:
