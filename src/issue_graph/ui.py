@@ -2,15 +2,17 @@
 
 import re
 import sys
+import threading
+from datetime import datetime
 
-from PySide6.QtCore import QPointF, Qt, QTimer, QUrl
-from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetricsF, QPainter, QPainterPath, QPen,
-                           QPolygonF, QWheelEvent)
+from PySide6.QtCore import QPointF, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetricsF, QKeySequence, QPainter, QPainterPath,
+                           QPen, QPolygonF, QWheelEvent)
 from PySide6.QtWidgets import (QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
                                QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView,
                                QMainWindow, QSplitter, QTextBrowser)
 
-from . import graph
+from . import github, graph
 from .github import Issue
 
 PEN_STYLES = {"solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine, "dotted": Qt.PenStyle.DotLine}
@@ -157,13 +159,16 @@ class GraphView(QGraphicsView):
 
 
 class Window(QMainWindow):
+    fetched = Signal(object)  # the issues, from the refresh thread
+    fetch_failed = Signal(str)
+
     def __init__(self, slug: str, issues: list[Issue], links: str | None):
         super().__init__()
         self.setWindowTitle(f"{slug} — issue-graph")
-        self.issues = {i.number: i for i in issues}
-        self.links = graph.edges(issues)  # every link, for the detail pane, whatever the graph shows
+        self.slug = slug
+        self.only = links  # --links
+        self.current: int | None = None  # the issue in the detail pane
         self.scene = QGraphicsScene(self)
-        self.nodes = build(self.scene, graph.layout(graph.to_dot(issues, links)))
         self.scene.selectionChanged.connect(self.selected)
         self.view = GraphView(self.scene)
         self.detail = QTextBrowser()
@@ -175,15 +180,64 @@ class Window(QMainWindow):
         split.addWidget(self.detail)
         split.setSizes([1000, 450])
         self.setCentralWidget(split)
-        self.statusBar().showMessage(f"{len(issues)} open issues, {len(self.links)} links · drag to pan, wheel to zoom")
+        bar = self.addToolBar("Refresh")
+        bar.setMovable(False)
+        self.refresh_action = bar.addAction("Refresh", self.refresh)
+        self.refresh_action.setShortcut(QKeySequence.StandardKey.Refresh)
+        self.refresh_action.setToolTip(f"Fetch the issues from GitHub again ({self.refresh_action.shortcut().toString()})")
+        # Slots of the window, not lambdas: Qt queues those to the window's thread, a lambda would run in the fetch's.
+        self.fetched.connect(self.refreshed)
+        self.fetch_failed.connect(self.refresh_failed)
+        self.load(issues)
         self.resize(1450, 900)
+
+    def load(self, issues: list[Issue]) -> None:
+        """Draw the issues. The selected issue stays selected and in view if it is still open."""
+        self.issues = {i.number: i for i in issues}
+        self.links = graph.edges(issues)  # every link, for the detail pane, whatever the graph shows
+        self.scene.clear()
+        self.nodes = build(self.scene, graph.layout(graph.to_dot(issues, self.only)))
+        self.scene.setSceneRect(self.scene.itemsBoundingRect())  # by itself, it only ever grows
+        if self.current in self.issues:
+            self.show_issue(self.current)
+            if self.current in self.nodes:
+                self.nodes[self.current].setSelected(True)
+                self.view.centerOn(self.nodes[self.current])
+        elif self.current is not None:
+            self.detail.setMarkdown(f"*#{self.current} is closed now, or gone.*")
+            self.current = None
+        self.statusBar().showMessage(f"{len(issues)} open issues, {len(self.links)} links, fetched"
+                                     f" {datetime.now():%H:%M} · drag to pan, wheel to zoom")
+
+    def refresh(self) -> None:
+        """Fetch the issues again in a thread: gh takes seconds, and the window stays usable meanwhile."""
+        self.refresh_action.setEnabled(False)
+        self.statusBar().showMessage("Fetching the issues …")
+
+        def fetch() -> None:  # in the thread: it reaches the window only through signals
+            try:
+                self.fetched.emit(github.fetch(self.slug))
+            except github.GhError as e:
+                self.fetch_failed.emit(str(e))
+        threading.Thread(target=fetch, daemon=True).start()
+
+    @Slot(object)
+    def refreshed(self, issues: list[Issue]) -> None:
+        self.refresh_action.setEnabled(True)
+        self.load(issues)
+
+    @Slot(str)
+    def refresh_failed(self, error: str) -> None:
+        self.refresh_action.setEnabled(True)
+        self.statusBar().showMessage(f"Refresh failed: {error}")
 
     def selected(self) -> None:
         items = self.scene.selectedItems()
-        if items:
+        if items and items[0].data(0) != self.current:  # reselected after a refresh: load showed it already
             self.show_issue(items[0].data(0))
 
     def show_issue(self, number: int) -> None:
+        self.current = number
         self.detail.setMarkdown(markdown(self.issues[number], self.links, self.issues))
 
     def follow(self, url: QUrl) -> None:
