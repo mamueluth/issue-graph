@@ -8,12 +8,12 @@ from collections import Counter
 from datetime import datetime
 
 from PySide6.QtCore import QPointF, QStringListModel, Qt, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetricsF, QKeyEvent, QKeySequence, QPainter,
-                           QPainterPath, QPen, QPixmap, QPolygonF, QWheelEvent)
+from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetricsF, QIcon, QKeyEvent, QKeySequence,
+                           QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QWheelEvent)
 from PySide6.QtWidgets import (QApplication, QCompleter, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
                                QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView,
-                               QHeaderView, QLabel, QLineEdit, QMainWindow, QPushButton, QSplitter, QTextBrowser,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+                               QGridLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QSplitter, QStyle,
+                               QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from . import github, graph, search
 from .github import Issue
@@ -140,6 +140,23 @@ def markdown(issue: Issue, links: list[graph.Edge], issues: dict[int, Issue]) ->
              "---",
              issue.body.strip() or "*No description.*"]
     return "\n\n".join(parts)
+
+
+def corners() -> QIcon:
+    """Four corners of a frame: Reset zoom's icon where the desktop's icon theme has no zoom-fit-best.
+
+    The style's own icons have none, unlike Refresh's and Reset's.
+    """
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    pen = QPen(QApplication.palette().windowText().color(), 6)
+    pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+    painter.setPen(pen)
+    for x, y, dx, dy in ((8, 8, 1, 1), (56, 8, -1, 1), (8, 56, 1, -1), (56, 56, -1, -1)):
+        painter.drawPolyline(QPolygonF([QPointF(x, y + 18 * dy), QPointF(x, y), QPointF(x + 18 * dx, y)]))
+    painter.end()
+    return QIcon(pixmap)
 
 
 class GraphView(QGraphicsView):
@@ -278,15 +295,19 @@ class FilterPanel(QWidget):
         header.sortIndicatorChanged.connect(self.sort)
         self.values: list[QTreeWidgetItem] = []
         self.tree.itemChanged.connect(self.ticked)
-        reset = QPushButton("Reset")
+        reset = QToolButton()
+        reset.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton))
+        reset.setToolTip("Reset: clear both lines")
         reset.clicked.connect(self.reset)
+        lines = QGridLayout()
+        lines.addWidget(self.words, 0, 0)
+        lines.addWidget(self.categories, 1, 0)
+        lines.addWidget(reset, 0, 1, 2, 1)  # beside both lines: it clears both
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.words)
-        layout.addWidget(self.categories)
+        layout.addLayout(lines)
         layout.addWidget(self.error)
         layout.addWidget(self.tree)
-        layout.addWidget(reset)
         self.terms: list[search.Term] = []
 
     def fill(self, issues: list[Issue]) -> None:
@@ -408,11 +429,15 @@ class Window(QMainWindow):
         split.addWidget(self.detail)
         split.setSizes([280, 1000, 450])
         self.setCentralWidget(split)
-        bar = self.addToolBar("Refresh")
+        bar = self.addToolBar("Tools")
         bar.setMovable(False)
-        self.refresh_action = bar.addAction("Refresh", self.refresh)
+        self.refresh_action = bar.addAction(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload),
+                                            "Refresh", self.refresh)
         self.refresh_action.setShortcut(QKeySequence.StandardKey.Refresh)
         self.refresh_action.setToolTip(f"Fetch the issues from GitHub again ({self.refresh_action.shortcut().toString()})")
+        fit = bar.addAction(QIcon.fromTheme(QIcon.ThemeIcon.ZoomFitBest, corners()), "Reset zoom", self.view.fit)
+        fit.setShortcut(QKeySequence("Ctrl+0"))
+        fit.setToolTip(f"Reset zoom: the whole graph in view ({fit.shortcut().toString()})")
         # Slots of the window, not lambdas: Qt queues those to the window's thread, a lambda would run in the fetch's.
         self.fetched.connect(self.refreshed)
         self.fetch_failed.connect(self.refresh_failed)
