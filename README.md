@@ -23,7 +23,8 @@ sudo apt-get install -y --no-install-recommends graphviz fonts-dejavu-core \
 ```
 
 Working on issue-graph itself: `uv tool install --editable .` in a clone,
-so code edits apply at once.
+so code edits apply at once; a new dependency needs the same command
+again, with `--force`. `uv run pytest` runs the tests.
 
 ## Use
 
@@ -36,9 +37,28 @@ issue-graph --links blocks           # only that kind of link (blocks, sub-issue
 
 In the window: click an issue to read it, drag to pan, wheel to zoom. In
 the issue pane, the blocked-by/blocks/sub-issue links jump to that issue;
-"open on GitHub" opens the browser. Refresh (F5) fetches the issues again
-and keeps the selected issue selected. In an SVG, every issue links to
-GitHub.
+"open on GitHub" opens the browser. Refresh (F5) fetches the issues again;
+both search lines and the selected issue stay. In an SVG, every issue
+links to GitHub.
+
+The left panel filters the graph, in two lines; hover either for the
+whole syntax.
+
+- The search line finds issues with any of its words, by close match, in
+  the title, body, labels, type, author, milestone or number: `sensr`
+  finds "sensor", `fus` finds "fusion", `bug` finds issues labelled bug
+  and issues mentioning it.
+- The category line narrows by category: `label:[bug, editor] type:[Bug]
+  issue:[12]`. A list means either, several categories all of them;
+  `-label:[wontfix]` excludes, `no:milestone` means none set. Typing
+  offers the categories, then the chosen one's values (issues by their
+  title); Enter or Tab takes the highlighted one. A line that doesn't
+  parse says why right below it, and the graph keeps its last valid one.
+
+Ticking an author, label, milestone or type below writes it into the
+category line; click the Name or Issues header to sort them. Issues that
+don't match are hidden and the rest laid out anew; the issue pane still
+lists every link. Reset clears both lines.
 
 ## How it works
 
@@ -47,6 +67,8 @@ out (`dot -Tjson`), and Qt (PySide6) draws its drawing operations in a
 `QGraphicsScene`, which gives zoom, pan and clicking. Files (`-o`) come
 straight from `dot`, without Qt.
 
-Only open issues of the repo are drawn: links to closed issues or other
-repos are left out. Only GitHub's relationship fields are links; "depends
-on #53" written in an issue's text is not.
+The search runs on the issues already fetched, without asking GitHub
+again; close matches are edit distances (rapidfuzz) to every word of every
+issue. Only open issues of the repo are drawn: links to closed issues or
+other repos are left out. Only GitHub's relationship fields are links;
+"depends on #53" written in an issue's text is not.
