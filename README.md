@@ -43,8 +43,10 @@ GitHub.
 The left panel filters the graph. The search field takes GitHub's issue
 search syntax with the qualifiers author, label, milestone and type, e.g.
 `crash label:bug,docs -label:wontfix no:milestone`; hover it for the whole
-syntax. Ticking an author, label, milestone or type below writes it into
-the search. Issues that don't match are hidden and the rest laid out anew;
+syntax; a search that doesn't parse says why right below it, and the
+graph keeps the last valid one. Ticking an author, label, milestone or
+type below writes it into the search; click the Name or Issues header to
+sort them. Issues that don't match are hidden and the rest laid out anew;
 the issue pane still lists every link. Reset clears the search.
 
 ## How it works

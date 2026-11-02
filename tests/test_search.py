@@ -42,8 +42,9 @@ def test_matches(query, numbers):
 
 
 @pytest.mark.parametrize("query, error", [
-    ("assignee:ann", "unknown qualifier assignee:"),
-    ("label:", "label: needs a value"),
+    ("assignee:ann", "unknown qualifier assignee: use author:"),
+    ("lable:editor", "unknown qualifier lable: did you mean label:"),
+    ("label: editor", "label: needs a value"),
     ("no:author", "no:author"),
 ])
 def test_errors(query, error):

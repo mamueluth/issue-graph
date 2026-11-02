@@ -12,7 +12,7 @@ from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetricsF, QKeyS
                            QPen, QPixmap, QPolygonF, QWheelEvent)
 from PySide6.QtWidgets import (QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
                                QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView,
-                               QHeaderView, QLineEdit, QMainWindow, QPushButton, QSplitter, QTextBrowser,
+                               QHeaderView, QLabel, QLineEdit, QMainWindow, QPushButton, QSplitter, QTextBrowser,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from . import github, graph, search
@@ -169,7 +169,6 @@ class FilterPanel(QWidget):
     """
 
     changed = Signal(list)  # the search's terms, after each valid change
-    failed = Signal(str)  # why the search text does not parse
 
     def __init__(self) -> None:
         super().__init__()
@@ -181,12 +180,21 @@ class FilterPanel(QWidget):
         self.timer.timeout.connect(self.apply)
         self.query.textEdited.connect(self.timer.start)  # typing: apply once it pauses
         self.query.returnPressed.connect(self.apply)
+        self.error = QLabel()  # why the search text does not parse; the graph keeps the last valid search meanwhile
+        self.error.setStyleSheet("color: #cf222e")
+        self.error.setWordWrap(True)
+        self.error.hide()
         self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setColumnCount(2)
-        self.tree.header().setStretchLastSection(False)
-        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.setHeaderLabels(["Name", "Issues"])
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionsClickable(True)  # a click sorts by that column, a second click the other way round
+        header.setSortIndicatorShown(True)
+        header.setSortIndicator(0, Qt.SortOrder.AscendingOrder)
+        self.tree.headerItem().setData(1, Qt.ItemDataRole.InitialSortOrderRole, Qt.SortOrder.DescendingOrder)
+        header.sortIndicatorChanged.connect(self.sort)
         self.values: list[QTreeWidgetItem] = []
         self.tree.itemChanged.connect(self.ticked)
         reset = QPushButton("Reset")
@@ -194,6 +202,7 @@ class FilterPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.query)
+        layout.addWidget(self.error)
         layout.addWidget(self.tree)
         layout.addWidget(reset)
         self.terms: list[search.Term] = []
@@ -212,9 +221,11 @@ class FilterPanel(QWidget):
         for field in search.FIELDS:
             top = QTreeWidgetItem(self.tree, [field.capitalize()])
             counts = Counter(v for i in issues for v in search.values(i, field))
-            for value in sorted(counts, key=str.lower):
-                item = QTreeWidgetItem(top, [value, str(counts[value])])
+            for value in counts:
+                item = QTreeWidgetItem(top, [value])
+                item.setToolTip(0, value)  # a long name is cut off in a narrow panel
                 item.setData(0, Qt.ItemDataRole.UserRole, (field, value))
+                item.setData(1, Qt.ItemDataRole.DisplayRole, counts[value])
                 item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
                 if field == "label":
                     swatch = QPixmap(12, 12)
@@ -223,16 +234,35 @@ class FilterPanel(QWidget):
                 self.values.append(item)
             top.setExpanded(top.text(0) not in collapsed)
             top.setDisabled(not counts)  # no issue has one: greyed, not hidden
+        self.sort()
         self.tick(self.terms)
         self.tree.blockSignals(blocked)
+
+    def sort(self) -> None:
+        """Sort each group's values as the header's sort indicator says; the groups keep their order.
+
+        Equal counts stay A to Z in either direction.
+        """
+        header = self.tree.header()
+        descending = header.sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
+        for k in range(self.tree.topLevelItemCount()):
+            top = self.tree.topLevelItem(k)
+            items = sorted(top.takeChildren(), key=lambda item: item.text(0).lower())
+            if header.sortIndicatorSection() == 1:
+                items.sort(key=lambda item: item.data(1, Qt.ItemDataRole.DisplayRole), reverse=descending)  # stable
+            elif descending:
+                items.reverse()
+            top.addChildren(items)
 
     def apply(self) -> None:
         self.timer.stop()
         try:
             self.terms = search.parse(self.query.text())
         except search.QueryError as e:
-            self.failed.emit(str(e))
+            self.error.setText(str(e))
+            self.error.show()
             return
+        self.error.hide()
         self.tick(self.terms)
         self.changed.emit(self.terms)
 
@@ -250,7 +280,8 @@ class FilterPanel(QWidget):
         try:
             terms = search.parse(self.query.text())
         except search.QueryError as e:  # the text being typed is broken: undo the tick
-            self.failed.emit(str(e))
+            self.error.setText(str(e))
+            self.error.show()
             self.tick(self.terms)
             return
         on = item.checkState(0) == Qt.CheckState.Checked
@@ -278,7 +309,6 @@ class Window(QMainWindow):
         self.view = GraphView(self.scene)
         self.panel = FilterPanel()
         self.panel.changed.connect(self.filter)
-        self.panel.failed.connect(self.statusBar().showMessage)
         self.detail = QTextBrowser()
         self.detail.setOpenLinks(False)
         self.detail.anchorClicked.connect(self.follow)

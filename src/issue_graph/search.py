@@ -10,6 +10,7 @@
 Matching ignores case. A value with spaces or commas is quoted: milestone:"v1.0, beta".
 """
 
+import difflib
 import re
 from dataclasses import dataclass, replace
 
@@ -64,9 +65,11 @@ def parse(text: str) -> list[Term]:
         field = m["field"].lower()
         vals = tuple(a or b for a, b in VALUE.findall(m["values"]) if a or b)
         if field not in (*FIELDS, NO):
-            raise QueryError(f"unknown qualifier {field}:, use {', '.join(f + ':' for f in (*FIELDS, NO))}")
+            close = difflib.get_close_matches(field, (*FIELDS, NO), n=1)
+            hint = f"did you mean {close[0]}:?" if close else "use " + ", ".join(f + ":" for f in (*FIELDS, NO))
+            raise QueryError(f"unknown qualifier {field}: {hint}")
         if not vals:
-            raise QueryError(f"{field}: needs a value")
+            raise QueryError(f"{field}: needs a value, right after the colon")
         if field == NO and (bad := [v for v in vals if v.lower() not in FIELDS[1:]]):
             raise QueryError(f"no:{bad[0]}: use no:label, no:milestone or no:type")
         terms.append(Term(field, vals, m["neg"] == "-"))
