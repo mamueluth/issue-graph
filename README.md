@@ -36,7 +36,9 @@ issue-graph --links blocks           # only that kind of link (blocks, sub-issue
 
 In the window: click an issue to read it, drag to pan, wheel to zoom. In
 the issue pane, the blocked-by/blocks/sub-issue links jump to that issue;
-"open on GitHub" opens the browser. In an SVG, every issue links to GitHub.
+"open on GitHub" opens the browser. Refresh (F5) fetches the issues again;
+the search and the selected issue stay. In an SVG, every issue links to
+GitHub.
 
 The left panel filters the graph. The search field takes GitHub's issue
 search syntax with the qualifiers author, label, milestone and type, e.g.

@@ -3,17 +3,19 @@
 import html
 import re
 import sys
+import threading
 from collections import Counter
+from datetime import datetime
 
-from PySide6.QtCore import QPointF, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetricsF, QPainter, QPainterPath, QPen,
-                           QPixmap, QPolygonF, QWheelEvent)
+from PySide6.QtCore import QPointF, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import (QColor, QDesktopServices, QFont, QFontMetricsF, QKeySequence, QPainter, QPainterPath,
+                           QPen, QPixmap, QPolygonF, QWheelEvent)
 from PySide6.QtWidgets import (QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
                                QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView,
                                QHeaderView, QLineEdit, QMainWindow, QPushButton, QSplitter, QTextBrowser,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from . import graph, search
+from . import github, graph, search
 from .github import Issue
 
 PEN_STYLES = {"solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine, "dotted": Qt.PenStyle.DotLine}
@@ -169,7 +171,7 @@ class FilterPanel(QWidget):
     changed = Signal(list)  # the search's terms, after each valid change
     failed = Signal(str)  # why the search text does not parse
 
-    def __init__(self, issues: list[Issue]):
+    def __init__(self) -> None:
         super().__init__()
         self.query = QLineEdit()
         self.query.setPlaceholderText('Search: crash label:bug milestone:"v1.0"')
@@ -186,22 +188,6 @@ class FilterPanel(QWidget):
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.values: list[QTreeWidgetItem] = []
-        colors = {label.name: label.color for i in issues for label in i.labels}
-        for field in search.FIELDS:
-            top = QTreeWidgetItem(self.tree, [field.capitalize()])
-            counts = Counter(v for i in issues for v in search.values(i, field))
-            for value in sorted(counts, key=str.lower):
-                item = QTreeWidgetItem(top, [value, str(counts[value])])
-                item.setData(0, Qt.ItemDataRole.UserRole, (field, value))
-                item.setCheckState(0, Qt.CheckState.Unchecked)
-                item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
-                if field == "label":
-                    swatch = QPixmap(12, 12)
-                    swatch.fill(QColor(f"#{colors[value]}"))
-                    item.setIcon(0, swatch)
-                self.values.append(item)
-            top.setExpanded(True)
-            top.setDisabled(not counts)  # no issue has one: greyed, not hidden
         self.tree.itemChanged.connect(self.ticked)
         reset = QPushButton("Reset")
         reset.clicked.connect(self.reset)
@@ -211,6 +197,34 @@ class FilterPanel(QWidget):
         layout.addWidget(self.tree)
         layout.addWidget(reset)
         self.terms: list[search.Term] = []
+
+    def fill(self, issues: list[Issue]) -> None:
+        """List the issues' authors, labels, milestones and types with counts, ticked as the search asks.
+
+        Called again after a refresh: the search stays, and a group the user collapsed stays collapsed.
+        """
+        tops = [self.tree.topLevelItem(k) for k in range(self.tree.topLevelItemCount())]
+        collapsed = {top.text(0) for top in tops if not top.isExpanded()}
+        blocked = self.tree.blockSignals(True)  # building the items is no clicking
+        self.tree.clear()
+        self.values = []
+        colors = {label.name: label.color for i in issues for label in i.labels}
+        for field in search.FIELDS:
+            top = QTreeWidgetItem(self.tree, [field.capitalize()])
+            counts = Counter(v for i in issues for v in search.values(i, field))
+            for value in sorted(counts, key=str.lower):
+                item = QTreeWidgetItem(top, [value, str(counts[value])])
+                item.setData(0, Qt.ItemDataRole.UserRole, (field, value))
+                item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
+                if field == "label":
+                    swatch = QPixmap(12, 12)
+                    swatch.fill(QColor(f"#{colors[value]}"))
+                    item.setIcon(0, swatch)
+                self.values.append(item)
+            top.setExpanded(top.text(0) not in collapsed)
+            top.setDisabled(not counts)  # no issue has one: greyed, not hidden
+        self.tick(self.terms)
+        self.tree.blockSignals(blocked)
 
     def apply(self) -> None:
         self.timer.stop()
@@ -225,11 +239,11 @@ class FilterPanel(QWidget):
     def tick(self, terms: list[search.Term]) -> None:
         """Tick the values the terms ask for, and only those."""
         wanted = {field: search.checked(terms, field) for field in search.FIELDS}
-        self.tree.blockSignals(True)  # ticks set here are no clicks
+        blocked = self.tree.blockSignals(True)  # ticks set here are no clicks
         for item in self.values:
             field, value = item.data(0, Qt.ItemDataRole.UserRole)
             item.setCheckState(0, Qt.CheckState.Checked if value.lower() in wanted[field] else Qt.CheckState.Unchecked)
-        self.tree.blockSignals(False)
+        self.tree.blockSignals(blocked)
 
     def ticked(self, item: QTreeWidgetItem) -> None:
         field, value = item.data(0, Qt.ItemDataRole.UserRole)
@@ -249,19 +263,20 @@ class FilterPanel(QWidget):
 
 
 class Window(QMainWindow):
+    fetched = Signal(object)  # the issues, from the refresh thread
+    fetch_failed = Signal(str)
+
     def __init__(self, slug: str, issues: list[Issue], links: str | None):
         super().__init__()
         self.setWindowTitle(f"{slug} — issue-graph")
-        self.all = issues
-        self.issues = {i.number: i for i in issues}
-        self.links = graph.edges(issues)  # every link, for the detail pane, whatever the graph shows
+        self.slug = slug
         self.only = links  # --links
         self.shown: list[int] | None = None  # the issues the search matches, drawn or (under --links) not
         self.current: int | None = None  # the issue in the detail pane
         self.scene = QGraphicsScene(self)
         self.scene.selectionChanged.connect(self.selected)
         self.view = GraphView(self.scene)
-        self.panel = FilterPanel(issues)
+        self.panel = FilterPanel()
         self.panel.changed.connect(self.filter)
         self.panel.failed.connect(self.statusBar().showMessage)
         self.detail = QTextBrowser()
@@ -274,11 +289,39 @@ class Window(QMainWindow):
         split.addWidget(self.detail)
         split.setSizes([280, 1000, 450])
         self.setCentralWidget(split)
-        self.filter([])
+        bar = self.addToolBar("Refresh")
+        bar.setMovable(False)
+        self.refresh_action = bar.addAction("Refresh", self.refresh)
+        self.refresh_action.setShortcut(QKeySequence.StandardKey.Refresh)
+        self.refresh_action.setToolTip(f"Fetch the issues from GitHub again ({self.refresh_action.shortcut().toString()})")
+        # Slots of the window, not lambdas: Qt queues those to the window's thread, a lambda would run in the fetch's.
+        self.fetched.connect(self.refreshed)
+        self.fetch_failed.connect(self.refresh_failed)
+        self.load(issues)
         self.resize(1730, 900)
 
-    def filter(self, terms: list[search.Term]) -> None:
-        """Draw the issues the search matches. A new set of issues is laid out anew, and the view fits it."""
+    def load(self, issues: list[Issue]) -> None:
+        """Take the fetched issues: the panel lists their values, and the search's matches are drawn anew.
+
+        The selected issue stays selected and in view, at the same zoom, if it is still open.
+        """
+        self.all = issues
+        self.issues = {i.number: i for i in issues}
+        self.links = graph.edges(issues)  # every link, for the detail pane, whatever the graph shows
+        self.fetched_at = datetime.now()
+        self.panel.fill(issues)
+        if self.current in self.issues:
+            self.show_issue(self.current)
+        elif self.current is not None:
+            self.detail.setMarkdown(f"*#{self.current} is closed now, or gone.*")
+            self.current = None
+        self.shown = None  # draw even if the same issues match: their links may have changed
+        self.filter(self.panel.terms, fit=False)
+        if self.current in self.nodes:
+            self.view.centerOn(self.nodes[self.current])
+
+    def filter(self, terms: list[search.Term], fit: bool = True) -> None:
+        """Draw the issues the search matches. A new set of them is laid out anew; with fit, the view shows it all."""
         shown = [i for i in self.all if search.matches(i, terms)]
         if [i.number for i in shown] != self.shown:
             self.shown = [i.number for i in shown]
@@ -287,13 +330,36 @@ class Window(QMainWindow):
             self.scene.setSceneRect(self.scene.itemsBoundingRect())  # by itself, it only ever grows
             if self.current in self.nodes:
                 self.nodes[self.current].setSelected(True)
-            self.view.fit()
+            if fit:
+                self.view.fit()
         self.statusBar().showMessage(f"{len(shown)} of {len(self.all)} open issues, {len(graph.edges(shown))} links"
-                                     " between them · drag to pan, wheel to zoom")
+                                     f" between them, fetched {self.fetched_at:%H:%M} · drag to pan, wheel to zoom")
+
+    def refresh(self) -> None:
+        """Fetch the issues again in a thread: gh takes seconds, and the window stays usable meanwhile."""
+        self.refresh_action.setEnabled(False)
+        self.statusBar().showMessage("Fetching the issues …")
+
+        def fetch() -> None:  # in the thread: it reaches the window only through signals
+            try:
+                self.fetched.emit(github.fetch(self.slug))
+            except github.GhError as e:
+                self.fetch_failed.emit(str(e))
+        threading.Thread(target=fetch, daemon=True).start()
+
+    @Slot(object)
+    def refreshed(self, issues: list[Issue]) -> None:
+        self.refresh_action.setEnabled(True)
+        self.load(issues)
+
+    @Slot(str)
+    def refresh_failed(self, error: str) -> None:
+        self.refresh_action.setEnabled(True)
+        self.statusBar().showMessage(f"Refresh failed: {error}")
 
     def selected(self) -> None:
         items = self.scene.selectedItems()
-        if items and items[0].data(0) != self.current:  # reselected after a filter: keep the pane's scroll
+        if items and items[0].data(0) != self.current:  # reselected after a filter or refresh: keep the pane's scroll
             self.show_issue(items[0].data(0))
 
     def show_issue(self, number: int) -> None:
