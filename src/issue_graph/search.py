@@ -1,46 +1,91 @@
-"""GitHub's issue search syntax, applied to the issues already fetched.
+"""Searching the issues already fetched, in two lines.
 
-  crash "null pointer"   words or phrases in the title or body, all of them; N or #N is issue N
-  label:bug              a qualifier: author, label, milestone, type
-  label:bug,docs         a comma list: either value
-  label:a label:b        repeated: both
-  -label:wontfix         not
-  no:milestone           the field is empty: no:label, no:milestone, no:type
+The search line finds issues with any of its words, by close match, anywhere: title, body, labels, type,
+author, milestone, number. Close (Elasticsearch's "AUTO" fuzziness, plus parts of words):
 
-Matching ignores case. A value with spaces or commas is quoted: milestone:"v1.0, beta".
+  sensr      a typo: 3-5 letters may be one edit off, longer words two; swapping two letters is one edit
+  fus        part of a word, from 3 letters on: fusion, confusion
+  12, #12    numbers match exactly
+
+The category line narrows by category, each a list of alternatives:
+
+  label:[bug, good first issue]   either label           label:bug,docs   GitHub's form works, too
+  label:[bug] type:[Bug]          both                   -label:[wontfix]  not
+  issue:[12, 40]                  these issues           no:milestone      none set: no:label, no:type
+
+Matching ignores case. An unclosed [ or " runs to the end, so text being typed still parses.
 """
 
 import difflib
 import re
 from dataclasses import dataclass, replace
 
+from rapidfuzz import process
+from rapidfuzz.distance import OSA
+
 from .github import Issue
 
-FIELDS = ("author", "label", "milestone", "type")
+FIELDS = ("author", "label", "milestone", "type", "issue")
 NO = "no"
+EMPTY = ("label", "milestone", "type")  # what no: can test
 
 TOKEN = re.compile(r"""
-    (?P<neg>-?)(?P<field>[a-z]+):(?P<values>(?:"[^"]*"?|[^\s",]*)(?:,(?:"[^"]*"?|[^\s",]*))*)  # -label:a,"b c"
-  | "(?P<phrase>[^"]*)"?                                                                     # "a phrase"
-  | (?P<word>\S+)
+    (?P<neg>-?)(?P<field>[a-z]+):(?P<values>\[[^\]]*\]?|(?:"[^"]*"?|[^\s",]*)(?:,(?:"[^"]*"?|[^\s",]*))*)
+  | (?P<word>"[^"]*"?|\S+)
 """, re.VERBOSE | re.IGNORECASE)
-VALUE = re.compile(r'"([^"]*)"?|([^\s",]+)')
+VALUE = re.compile(r'"([^"]*)"?|([^,"]+)')
 
 
 class QueryError(ValueError):
-    """The search text has an unknown qualifier or one without a value."""
+    """The category line has an unknown category or a word outside one."""
 
 
 @dataclass(frozen=True)
 class Term:
-    """One part of a query: free text (field None) or a qualifier. Several values are alternatives."""
-    field: str | None
+    """One category of the category line. Several values are alternatives."""
+    field: str
     values: tuple[str, ...]
     negated: bool = False
 
 
+def words(text: str) -> list[str]:
+    return re.findall(r"\w+", text.lower())
+
+
+class Index:
+    """Every word of every issue, to look up the issues close to a search's words."""
+
+    def __init__(self, issues: list[Issue]):
+        self.words = {i.number: set(words(" ".join([i.title, i.body, *(v for f in FIELDS for v in values(i, f))])))
+                      for i in issues}
+        self.vocabulary = sorted(set().union(*self.words.values()))
+        self.near: dict[str, set[str]] = {}  # cache: typing repeats the earlier words
+
+    def close(self, word: str) -> set[str]:
+        """The vocabulary's words close to word."""
+        if word not in self.near:
+            if word.isdigit():
+                near = {word}
+            else:
+                edits = 0 if len(word) <= 2 else 1 if len(word) <= 5 else 2
+                near = {w for w, _, _ in process.extract(word, self.vocabulary, scorer=OSA.distance,
+                                                         score_cutoff=edits, limit=None)}
+                if len(word) >= 3:
+                    near |= {w for w in self.vocabulary if word in w}
+            self.near[word] = near
+        return self.near[word]
+
+    def find(self, text: str) -> set[int] | None:
+        """The issues with any word close to one of text's, or None if text has no words: no search."""
+        wanted = words(text)
+        if not wanted:
+            return None
+        near = set().union(*map(self.close, wanted))
+        return {number for number, have in self.words.items() if have & near}
+
+
 def values(issue: Issue, field: str) -> list[str]:
-    """The issue's values of a qualifier field: what label:, author:, ... compare against."""
+    """The issue's values of a category: what label:, author:, ... compare against."""
     match field:
         case "author":
             return [issue.author] if issue.author else []
@@ -50,50 +95,50 @@ def values(issue: Issue, field: str) -> list[str]:
             return [issue.milestone.title] if issue.milestone else []
         case "type":
             return [issue.type] if issue.type else []
+        case "issue":
+            return [str(issue.number)]
     raise ValueError(field)
 
 
 def parse(text: str) -> list[Term]:
-    """The terms of the search text. An unclosed quote runs to the end, so text being typed still parses."""
+    """The terms of the category line. A category still being typed (lab, label:[) is left out, not an error."""
     terms = []
+    names = (*FIELDS, NO)
     for m in TOKEN.finditer(text):
         if m["field"] is None:
-            free = m["phrase"] if m["phrase"] is not None else m["word"]
-            if free.strip():
-                terms.append(Term(None, (free,)))
-            continue
+            word = m["word"].strip('"')
+            if any(name.startswith(word.lower()) for name in names):
+                continue
+            close = difflib.get_close_matches(word.lower(), names, n=1)
+            raise QueryError(f"{word}: did you mean {close[0]}:?" if close else
+                             f"{word}: put it in a category, like label:[{word}]; words go in the search line")
         field = m["field"].lower()
-        vals = tuple(a or b for a, b in VALUE.findall(m["values"]) if a or b)
-        if field not in (*FIELDS, NO):
-            close = difflib.get_close_matches(field, (*FIELDS, NO), n=1)
-            hint = f"did you mean {close[0]}:?" if close else "use " + ", ".join(f + ":" for f in (*FIELDS, NO))
-            raise QueryError(f"unknown qualifier {field}: {hint}")
-        if not vals:
-            raise QueryError(f"{field}: needs a value, right after the colon")
-        if field == NO and (bad := [v for v in vals if v.lower() not in FIELDS[1:]]):
+        if field not in names:
+            close = difflib.get_close_matches(field, names, n=1)
+            hint = f"did you mean {close[0]}:?" if close else "use " + ", ".join(f + ":" for f in names)
+            raise QueryError(f"unknown category {field}: {hint}")
+        raw = m["values"].removeprefix("[").removesuffix("]") if m["values"].startswith("[") else m["values"]
+        vals = tuple(v.strip().removeprefix("#") if field == "issue" else v.strip()
+                     for a, b in VALUE.findall(raw) if (v := a or b).strip())
+        if field == NO and (bad := [v for v in vals if v.lower() not in EMPTY]):
             raise QueryError(f"no:{bad[0]}: use no:label, no:milestone or no:type")
-        terms.append(Term(field, vals, m["neg"] == "-"))
+        if vals:
+            terms.append(Term(field, vals, m["neg"] == "-"))
     return terms
 
 
-def quoted(value: str) -> str:
-    return f'"{value}"' if re.search(r'[\s,"]', value) else value
-
-
 def text(terms: list[Term]) -> str:
-    """The search text of the terms; it parses back to them unless a value holds a quote."""
+    """The category line of the terms; it parses back to them unless a value holds a quote."""
+    def quoted(value: str) -> str:
+        return f'"{value}"' if re.search(r'[,"\[\]]', value) else value
+
     def one(t: Term) -> str:
-        if t.field is None:  # quoted when it would read as a qualifier, too
-            return f'"{t.values[0]}"' if re.search(r'[\s":]', t.values[0]) else t.values[0]
-        return ("-" if t.negated else "") + f"{t.field}:" + ",".join(map(quoted, t.values))
+        return ("-" if t.negated else "") + f"{t.field}:[" + ", ".join(map(quoted, t.values)) + "]"
     return " ".join(map(one, terms))
 
 
 def holds(term: Term, issue: Issue) -> bool:
-    if term.field is None:
-        word = term.values[0].lower()
-        hit = word.removeprefix("#") == str(issue.number) or word in issue.title.lower() or word in issue.body.lower()
-    elif term.field == NO:
+    if term.field == NO:
         hit = any(not values(issue, field.lower()) for field in term.values)
     else:
         have = {v.lower() for v in values(issue, term.field)}
@@ -106,15 +151,15 @@ def matches(issue: Issue, terms: list[Term]) -> bool:
 
 
 def checked(terms: list[Term], field: str) -> set[str]:
-    """The field's values the query asks for, lowercased: the panel ticks these."""
+    """The category's values the line asks for, lowercased: the panel ticks these."""
     return {v.lower() for t in terms if t.field == field and not t.negated for v in t.values}
 
 
 def toggle(terms: list[Term], field: str, value: str, on: bool) -> list[Term]:
     """The terms with value ticked or unticked in the panel.
 
-    Ticking adds it to the field's first qualifier as an alternative (label:bug -> label:bug,docs), or appends
-    a qualifier. Unticking removes it from every qualifier that asks for it, and a qualifier left empty goes.
+    Ticking adds it to the category's first list (label:[bug] -> label:[bug, docs]), or appends a new one.
+    Unticking removes it from every list that asks for it, and a list left empty goes.
     """
     mine = [k for k, t in enumerate(terms) if t.field == field and not t.negated]
     if on:
