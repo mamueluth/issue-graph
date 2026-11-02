@@ -56,7 +56,9 @@ whole syntax.
   parse says why right below it, and the graph keeps its last valid one.
 
 Ticking an author, label, milestone or type below writes it into the
-category line; click the Name or Issues header to sort them. Issues that
+category line; click the Name or Issues header to sort them. *no label*,
+on top of the labels, ticks `no:label`, and it and the labels untick each
+other; likewise *no milestone* and *no type*. Issues that
 don't match are hidden and the rest laid out anew; the issue pane still
 lists every link. Reset clears both lines.
 

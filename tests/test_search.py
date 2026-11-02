@@ -83,6 +83,17 @@ def test_ticking_edits_the_category_line():
     assert search.text(terms) == "-label:[bug]"
 
 
+def test_no_label_and_the_labels_untick_each_other():
+    terms = search.parse("label:[bug, docs] -label:[wontfix] type:[Bug]")
+    terms = search.toggle(terms, search.NO, "label", True)
+    assert search.text(terms) == "-label:[wontfix] type:[Bug] no:[label]"
+    terms = search.toggle(terms, search.NO, "milestone", True)
+    assert search.text(terms) == "-label:[wontfix] type:[Bug] no:[label] no:[milestone]"  # both, not either
+    assert search.checked(terms, search.NO) == {"label", "milestone"}
+    terms = search.toggle(terms, "label", "bug", True)
+    assert search.text(terms) == "-label:[wontfix] type:[Bug] no:[milestone] label:[bug]"
+
+
 def test_a_filtered_graph_has_no_links_to_hidden_issues():
     shown = [i for i in ISSUES if i.number != 3]  # 1 blocks 3, 3 is the parent of 4
     assert graph.edges(shown) == []

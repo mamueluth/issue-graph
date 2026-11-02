@@ -304,6 +304,18 @@ class FilterPanel(QWidget):
         for field in TICKABLE:
             top = QTreeWidgetItem(self.tree, [field.capitalize()])
             counts = Counter(v for i in issues for v in search.values(i, field))
+            if field in search.EMPTY:
+                none = QTreeWidgetItem(top, [f"no {field}"])
+                font = none.font(0)
+                font.setItalic(True)  # not a value of the field
+                none.setFont(0, font)
+                none.setToolTip(0, f"no:{field}, issues without a {field}; it and the {field}s untick each other")
+                none.setData(0, Qt.ItemDataRole.UserRole, (search.NO, field))
+                count = sum(not search.values(i, field) for i in issues)
+                none.setData(1, Qt.ItemDataRole.DisplayRole, count)
+                none.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
+                none.setDisabled(not count)  # every issue has one: greyed like an empty group
+                self.values.append(none)
             for value in counts:
                 item = QTreeWidgetItem(top, [value])
                 item.setToolTip(0, value)  # a long name is cut off in a narrow panel
@@ -330,7 +342,7 @@ class FilterPanel(QWidget):
     def sort(self) -> None:
         """Sort each group's values as the header's sort indicator says; the groups keep their order.
 
-        Equal counts stay A to Z in either direction.
+        Equal counts stay A to Z in either direction, and "no label" stays on top.
         """
         header = self.tree.header()
         descending = header.sortIndicatorOrder() == Qt.SortOrder.DescendingOrder
@@ -341,7 +353,7 @@ class FilterPanel(QWidget):
                 items.sort(key=lambda item: item.data(1, Qt.ItemDataRole.DisplayRole), reverse=descending)  # stable
             elif descending:
                 items.reverse()
-            top.addChildren(items)
+            top.addChildren(sorted(items, key=lambda item: item.data(0, Qt.ItemDataRole.UserRole)[0] != search.NO))
 
     def apply(self) -> None:
         self.timer.stop()
@@ -356,7 +368,7 @@ class FilterPanel(QWidget):
 
     def tick(self, terms: list[search.Term]) -> None:
         """Tick the values the terms ask for, and only those."""
-        wanted = {field: search.checked(terms, field) for field in TICKABLE}
+        wanted = {field: search.checked(terms, field) for field in (*TICKABLE, search.NO)}
         blocked = self.tree.blockSignals(True)  # ticks set here are no clicks
         for item in self.values:
             field, value = item.data(0, Qt.ItemDataRole.UserRole)

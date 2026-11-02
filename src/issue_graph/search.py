@@ -160,7 +160,14 @@ def toggle(terms: list[Term], field: str, value: str, on: bool) -> list[Term]:
 
     Ticking adds it to the category's first list (label:[bug] -> label:[bug, docs]), or appends a new one.
     Unticking removes it from every list that asks for it, and a list left empty goes.
+
+    The panel's "no label" is the field no:, value label. It and the labels exclude each other: ticking one
+    unticks the other. Ticked, it is a term of its own, as no label and no milestone means both.
     """
+    if on and field == NO:
+        return [*(t for t in terms if t.field != value.lower() or t.negated), Term(NO, (value,))]
+    if on:
+        terms = toggle(terms, NO, field, False)
     mine = [k for k, t in enumerate(terms) if t.field == field and not t.negated]
     if on:
         if not mine:
