@@ -1,0 +1,19 @@
+[project]
+name = "issue-graph"
+version = "0.1.0"
+description = "A GitHub repo's open issues and their blocked-by and sub-issue links as a graph: a window to browse, or a PNG/SVG"
+readme = "README.md"
+authors = [
+    { name = "Manuel M.", email = "manuel.muth@rosiris.de" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "pyside6-essentials>=6.12.0",
+]
+
+[project.scripts]
+issue-graph = "issue_graph.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
