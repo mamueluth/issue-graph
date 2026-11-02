@@ -12,7 +12,6 @@ the skill's script on 3 repos × 4 `--links` modes).
   zoom in to a readable size.
 - Selection highlight is a thin dashed box: make it stand out, maybe
   highlight the selected issue's links too.
-- Refresh without restarting.
 - Rebuild loses the `uv tool install`: add it to `packages.yaml` once the
   tool has settled.
 - Remove the toolbox skill.
