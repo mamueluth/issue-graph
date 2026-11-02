@@ -23,7 +23,8 @@ sudo apt-get install -y --no-install-recommends graphviz fonts-dejavu-core \
 ```
 
 Working on issue-graph itself: `uv tool install --editable .` in a clone,
-so code edits apply at once; `uv run pytest` runs the tests.
+so code edits apply at once; a new dependency needs the same command
+again, with `--force`. `uv run pytest` runs the tests.
 
 ## Use
 
