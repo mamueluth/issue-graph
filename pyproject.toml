@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "pygraphviz>=2.0.4",
     "pyside6-essentials>=6.12.0",
     "rapidfuzz>=3.14.6",
 ]

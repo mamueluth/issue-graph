@@ -10,16 +10,18 @@ itself shows these links only per issue, in the sidebar.
 uv tool install git+https://github.com/mamueluth/issue-graph
 ```
 
-Needs `gh` (logged in, read access to the repo's issues) and Graphviz
-(`dot`). github.com only: the blocked-by and sub-issue fields. The window
-needs a display and, on Linux, Qt's display libraries: a desktop has them, a
-bare container does not. On Debian/Ubuntu:
+Needs `gh` (logged in, read access to the repo's issues); Graphviz comes
+bundled. github.com only: the blocked-by and sub-issue fields. The window
+needs a display. On Linux, the bundled Graphviz and Qt need a few system
+libraries and a font: a desktop has them, a bare container does not. On
+Debian/Ubuntu:
 
 ```sh
-sudo apt-get install -y --no-install-recommends graphviz fonts-dejavu-core \
-  libegl1 libgl1 libfontconfig1 libdbus-1-3 libx11-xcb1 libxkbcommon-x11-0 \
-  libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-  libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xkb1
+sudo apt-get install -y --no-install-recommends fonts-dejavu-core \
+  libglib2.0-0 libxrender1 libegl1 libgl1 libfontconfig1 libdbus-1-3 \
+  libx11-xcb1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+  libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+  libxcb-xfixes0 libxcb-xkb1
 ```
 
 Working on issue-graph itself: `uv tool install --editable .` in a clone,
@@ -68,7 +70,9 @@ lists every link. Reset, the button beside the two lines, clears both.
 `gh api graphql` fetches the open issues. Graphviz's `dot` lays the graph
 out (`dot -Tjson`), and Qt (PySide6) draws its drawing operations in a
 `QGraphicsScene`, which gives zoom, pan and clicking. Files (`-o`) come
-straight from `dot`, without Qt.
+straight from `dot`, without Qt. `dot` is the Graphviz that pygraphviz's
+wheels bundle, run in a child process: see
+[dot.py](src/issue_graph/dot.py) for why.
 
 The search runs on the issues already fetched, without asking GitHub
 again; close matches are edit distances (rapidfuzz) to every word of every

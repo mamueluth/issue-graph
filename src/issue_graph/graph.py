@@ -8,6 +8,7 @@ Issues are grouped by milestone.
 
 import json
 import subprocess
+import sys
 from dataclasses import dataclass
 from itertools import groupby
 from typing import Literal
@@ -39,7 +40,7 @@ STYLES: dict[Kind, EdgeStyle] = {
 
 
 class GraphvizError(RuntimeError):
-    """dot is missing or failed; the message is dot's own."""
+    """dot failed; the message is Graphviz's own."""
 
 
 def edges(issues: list[Issue], links: str | None = None) -> list[Edge]:
@@ -120,13 +121,14 @@ def to_dot(issues: list[Issue], links: str | None = None) -> str:
 
 
 def render(dot: str, fmt: str) -> bytes:
-    """dot's output for the DOT text in format fmt (png, svg, json, ...)."""
-    try:
-        done = subprocess.run(["dot", f"-T{fmt}"], input=dot.encode(), capture_output=True)
-    except FileNotFoundError:
-        raise GraphvizError("dot not found: install Graphviz (apt: graphviz, macOS: brew install graphviz)") from None
+    """dot's output for the DOT text in format fmt (png, svg, json, ...): Graphviz bundled, see dot.py.
+
+    -I: the child neither imports from the working directory nor reads PYTHON* variables.
+    """
+    done = subprocess.run([sys.executable, "-I", "-m", "issue_graph.dot", fmt], input=dot.encode(),
+                          capture_output=True)
     if done.returncode != 0:
-        raise GraphvizError(done.stderr.decode().strip())
+        raise GraphvizError(done.stderr.decode().strip() or f"dot -T{fmt} failed")
     return done.stdout
 
 
