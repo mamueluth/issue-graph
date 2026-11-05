@@ -35,11 +35,12 @@ issue-graph OWNER/REPO -o graph.png  # render to .png, .svg or .dot instead; nee
 issue-graph --links blocks           # only that kind of link (blocks, sub-issues, both)
 ```
 
-In the window: click an issue to read it, drag to pan, wheel to zoom. In
-the issue pane, the blocked-by/blocks/sub-issue links jump to that issue;
-"open on GitHub" opens the browser. Refresh (F5) fetches the issues again;
-both search lines and the selected issue stay. In an SVG, every issue
-links to GitHub.
+In the window: click an issue to read it, drag to pan, wheel to zoom;
+Reset zoom (Ctrl+0) brings the whole graph back in view. In the issue
+pane, the blocked-by/blocks/sub-issue links jump to that issue; "open on
+GitHub" opens the browser. Refresh (F5) fetches the issues again; both
+search lines and the selected issue stay. In an SVG, every issue links to
+GitHub.
 
 The left panel filters the graph, in two lines; hover either for the
 whole syntax.
@@ -58,7 +59,7 @@ whole syntax.
 Ticking an author, label, milestone or type below writes it into the
 category line; click the Name or Issues header to sort them. Issues that
 don't match are hidden and the rest laid out anew; the issue pane still
-lists every link. Reset clears both lines.
+lists every link. Reset, the button beside the two lines, clears both.
 
 ## How it works
 
