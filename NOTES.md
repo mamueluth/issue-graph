@@ -1,8 +1,6 @@
 # Notes
 
-Goal: browse a repo's issues without Claude, then drop the toolbox
-`issue-graph` skill (its DOT output is reproduced exactly: checked against
-the skill's script on 3 repos × 4 `--links` modes).
+Goal: browse a repo's issues as a graph.
 
 ## Backlog
 
@@ -12,4 +10,6 @@ the skill's script on 3 repos × 4 `--links` modes).
   highlight the selected issue's links too.
 - Rebuild loses the `uv tool install`: add it to `packages.yaml` once the
   tool has settled.
-- Remove the toolbox skill.
+- Remove the toolbox `issue-graph` skill: issue-graph reproduces its DOT
+  output exactly (checked against the skill's script on 3 repos × 4
+  `--links` modes).
