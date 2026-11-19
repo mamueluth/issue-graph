@@ -23,9 +23,9 @@ def repo(text: str) -> str:
 def has_display() -> bool:
     """Whether the window has a display to open on.
 
-    VS Code's Dev Containers forward the host's X display into the container as a socket and name it
-    in REMOTE_CONTAINERS_DISPLAY_SOCK. A container may still empty DISPLAY, to keep browsers off that
-    display (Chromium's GPU process hangs on it, even headless); the window opens on the socket anyway.
+    On Linux, that is DISPLAY or WAYLAND_DISPLAY. When both are empty, a forwarded X socket named in
+    REMOTE_CONTAINERS_DISPLAY_SOCK (as VS Code's dev containers set it) becomes the display: X<n> sets
+    DISPLAY to :<n>.
     """
     if sys.platform != "linux" or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         return True
