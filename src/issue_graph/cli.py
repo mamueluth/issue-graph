@@ -5,6 +5,7 @@ Opens a window to browse them; with -o renders to a file instead, without a disp
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -19,6 +20,23 @@ def repo(text: str) -> str:
     return text
 
 
+def has_display() -> bool:
+    """Whether the window has a display to open on.
+
+    VS Code's Dev Containers forward the host's X display into the container as a socket and name it
+    in REMOTE_CONTAINERS_DISPLAY_SOCK. A container may still empty DISPLAY, to keep browsers off that
+    display (Chromium's GPU process hangs on it, even headless); the window opens on the socket anyway.
+    """
+    if sys.platform != "linux" or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        return True
+    sock = Path(os.environ.get("REMOTE_CONTAINERS_DISPLAY_SOCK", ""))
+    number = re.fullmatch(r"X(\d+)", sock.name)
+    if number and sock.is_socket():
+        os.environ["DISPLAY"] = f":{number[1]}"
+        return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="issue-graph", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -31,8 +49,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.output and args.output.suffix.lower() not in FORMATS:
         parser.error(f"-o: unknown format {args.output.suffix!r}, use .png, .svg or .dot")
-    has_display = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
-    if not args.output and sys.platform == "linux" and not has_display:
+    if not args.output and not has_display():
         parser.error("no display to open the window on; render to a file with -o FILE")
 
     try:

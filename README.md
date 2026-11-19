@@ -12,7 +12,9 @@ uv tool install git+https://github.com/mamueluth/issue-graph
 
 Needs `gh` (logged in, read access to the repo's issues); Graphviz comes
 bundled. github.com only: the blocked-by and sub-issue fields. The window
-needs a display. On Linux, the bundled Graphviz and Qt need a few system
+needs a display. In a VS Code dev container it opens on the X display the
+container forwards (`REMOTE_CONTAINERS_DISPLAY_SOCK`), even when `DISPLAY`
+is empty there to keep browsers off it. On Linux, the bundled Graphviz and Qt need a few system
 libraries and a font: a desktop has them, a bare container does not. On
 Debian/Ubuntu:
 
